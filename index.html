@@ -388,7 +388,8 @@ button{
 
 .overlay{
   position:absolute;
-  inset:0
+  inset:0;
+  pointer-events:none;
 }
 
 .field{
@@ -404,6 +405,7 @@ button{
   user-select:none;
   touch-action:none;
   cursor:move;
+  pointer-events:auto;
 }
 
 .field.selected{
@@ -438,6 +440,7 @@ button{
   display:none;
   cursor:pointer;
   z-index:15;
+  pointer-events:auto;
 }
 
 .field.selected .delete{
@@ -446,15 +449,16 @@ button{
 
 .resize{
   position:absolute;
-  right:-5px;
-  bottom:-5px;
-  width:10px;
-  height:10px;
+  right:-6px;
+  bottom:-6px;
+  width:12px;
+  height:12px;
   background:#303236;
   border-radius:2px;
   display:none;
   cursor:nwse-resize;
-  z-index:15;
+  z-index:20;
+  pointer-events:auto;
 }
 
 .field.selected .resize{
@@ -898,9 +902,7 @@ function showLogin() {
 
 function modal(html) {
   $('#modalRoot').innerHTML = `
-    <div class="modal" onclick="if(event.target===this)closeModal()">
-      <div class="modal-card">${html}</div>
-    </div>
+    <div class="modal" onclick="if(event.target===this)closeModal()">${html}</div>
   `;
 }
 
@@ -1371,7 +1373,7 @@ function selectTool(type) {
 }
 
 function placeField(event, overlay) {
-  if (!state.tool || event.target !== overlay) return;
+  if (!state.tool) return;
 
   const rect = overlay.getBoundingClientRect();
   const sizes = {
@@ -1386,7 +1388,7 @@ function placeField(event, overlay) {
   const x = Math.max(0, Math.min((event.clientX - rect.left) / rect.width, 1 - w));
   const y = Math.max(0, Math.min((event.clientY - rect.top) / rect.height, 1 - h));
 
-  state.fields.push({
+  const newField = {
     id: crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2),
     type: state.tool,
     page: +overlay.dataset.page,
@@ -1395,8 +1397,10 @@ function placeField(event, overlay) {
     recipientRole: '1',
     value: state.tool === 'checkbox' ? false : '',
     properties: { options: ['Option 1', 'Option 2'] }
-  });
+  };
 
+  state.fields.push(newField);
+  state.selected = newField.id;
   state.tool = null;
   renderFields();
 }
@@ -1417,19 +1421,18 @@ function dragField(event, field, element, kind) {
   const oldW = field.w;
   const oldH = field.h;
 
-  try {
-    element.setPointerCapture(event.pointerId);
-  } catch (e) {}
-
   const move = function(ev) {
+    ev.preventDefault();
+    ev.stopPropagation();
+
     const dx = (ev.clientX - startX) / rect.width;
     const dy = (ev.clientY - startY) / rect.height;
 
     if (kind === 'move') {
       field.x = Math.min(Math.max(oldX + dx, 0), 1 - field.w);
       field.y = Math.min(Math.max(oldY + dy, 0), 1 - field.h);
-    } else {
-      field.w = Math.min(Math.max(oldW + dx, 0.02), 1 - field.x);
+    } else if (kind === 'resize') {
+      field.w = Math.min(Math.max(oldW + dx, 0.03), 1 - field.x);
       field.h = Math.min(Math.max(oldH + dy, 0.02), 1 - field.y);
     }
 
@@ -1442,9 +1445,6 @@ function dragField(event, field, element, kind) {
   const up = function(ev) {
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
-    try {
-      element.releasePointerCapture(event.pointerId);
-    } catch (e) {}
     renderFields();
   };
 
@@ -1455,19 +1455,18 @@ function dragField(event, field, element, kind) {
 function renderFields() {
   state.pages.forEach(function(page) {
     page.ov.innerHTML = '';
-    page.ov.onclick = function(event) { placeField(event, page.ov); };
+    page.ov.parentElement.style.pointerEvents = 'auto';
+    page.ov.parentElement.onclick = function(event) {
+      if (event.target === page.ov || event.target.tagName === 'CANVAS') {
+        placeField(event, page.ov);
+      }
+    };
   });
 
   state.fields.forEach(function(field) {
     const element = document.createElement('div');
     element.className = 'field' + (state.selected === field.id ? ' selected' : '');
     element.style.cssText = `left:${field.x * 100}%;top:${field.y * 100}%;width:${field.w * 100}%;height:${field.h * 100}%`;
-
-    element.onclick = function(event) {
-      event.stopPropagation();
-      state.selected = field.id;
-      renderFields();
-    };
 
     element.onpointerdown = function(event) {
       if (event.target.classList.contains('delete') || event.target.classList.contains('resize')) {
@@ -1479,6 +1478,9 @@ function renderFields() {
     const deleteButton = document.createElement('button');
     deleteButton.className = 'delete';
     deleteButton.textContent = '×';
+    deleteButton.onpointerdown = function(event) {
+      event.stopPropagation();
+    };
     deleteButton.onclick = function(event) {
       event.stopPropagation();
       state.fields = state.fields.filter(function(x) { return x.id !== field.id; });
@@ -1499,7 +1501,9 @@ function renderFields() {
     };
     element.append(resize);
 
-    if (state.pages[field.page]) state.pages[field.page].ov.append(element);
+    if (state.pages[field.page]) {
+      state.pages[field.page].ov.append(element);
+    }
   });
 
   renderProperties();
