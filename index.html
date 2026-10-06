@@ -402,7 +402,8 @@ button{
   min-width:18px;
   min-height:18px;
   user-select:none;
-  touch-action:none
+  touch-action:none;
+  cursor:move;
 }
 
 .field.selected{
@@ -417,7 +418,8 @@ button{
   white-space:nowrap;
   overflow:hidden;
   text-overflow:ellipsis;
-  padding:0 4px
+  padding:0 4px;
+  pointer-events:none;
 }
 
 .field .delete{
@@ -433,7 +435,9 @@ button{
   font-size:12px;
   line-height:17px;
   padding:0;
-  display:none
+  display:none;
+  cursor:pointer;
+  z-index:15;
 }
 
 .field.selected .delete{
@@ -449,7 +453,8 @@ button{
   background:#303236;
   border-radius:2px;
   display:none;
-  cursor:nwse-resize
+  cursor:nwse-resize;
+  z-index:15;
 }
 
 .field.selected .resize{
@@ -1396,6 +1401,57 @@ function placeField(event, overlay) {
   renderFields();
 }
 
+function dragField(event, field, element, kind) {
+  event.preventDefault();
+  event.stopPropagation();
+
+  state.selected = field.id;
+  const overlay = element.parentElement;
+  const rect = overlay.getBoundingClientRect();
+
+  const startX = event.clientX;
+  const startY = event.clientY;
+
+  const oldX = field.x;
+  const oldY = field.y;
+  const oldW = field.w;
+  const oldH = field.h;
+
+  try {
+    element.setPointerCapture(event.pointerId);
+  } catch (e) {}
+
+  const move = function(ev) {
+    const dx = (ev.clientX - startX) / rect.width;
+    const dy = (ev.clientY - startY) / rect.height;
+
+    if (kind === 'move') {
+      field.x = Math.min(Math.max(oldX + dx, 0), 1 - field.w);
+      field.y = Math.min(Math.max(oldY + dy, 0), 1 - field.h);
+    } else {
+      field.w = Math.min(Math.max(oldW + dx, 0.02), 1 - field.x);
+      field.h = Math.min(Math.max(oldH + dy, 0.02), 1 - field.y);
+    }
+
+    element.style.left = (field.x * 100) + '%';
+    element.style.top = (field.y * 100) + '%';
+    element.style.width = (field.w * 100) + '%';
+    element.style.height = (field.h * 100) + '%';
+  };
+
+  const up = function(ev) {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    try {
+      element.releasePointerCapture(event.pointerId);
+    } catch (e) {}
+    renderFields();
+  };
+
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+}
+
 function renderFields() {
   state.pages.forEach(function(page) {
     page.ov.innerHTML = '';
@@ -1413,6 +1469,13 @@ function renderFields() {
       renderFields();
     };
 
+    element.onpointerdown = function(event) {
+      if (event.target.classList.contains('delete') || event.target.classList.contains('resize')) {
+        return;
+      }
+      dragField(event, field, element, 'move');
+    };
+
     const deleteButton = document.createElement('button');
     deleteButton.className = 'delete';
     deleteButton.textContent = '×';
@@ -1428,6 +1491,13 @@ function renderFields() {
     tag.className = 'tag';
     tag.textContent = field.type === 'checkbox' ? '☐' : field.type.replace('_', ' ');
     element.append(tag);
+
+    const resize = document.createElement('div');
+    resize.className = 'resize';
+    resize.onpointerdown = function(event) {
+      dragField(event, field, element, 'resize');
+    };
+    element.append(resize);
 
     if (state.pages[field.page]) state.pages[field.page].ov.append(element);
   });
